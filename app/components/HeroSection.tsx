@@ -2,30 +2,8 @@
 
 import { useRef } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-
-const VIDEO_SRC = "/video/Luxury_Barbershop_Cinematic_Video_Generation.mp4";
-
-const STATS = [
-  { number: "10+", label: "Years Experience" },
-  { number: "5K+", label: "Happy Clients"    },
-  { number: "4.9★", label: "Star Rating"     },
-];
-
-/** Reusable fade-up variant factory */
-function fadeUp(delay: number) {
-  return {
-    hidden: { opacity: 0, y: 38 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: {
-        duration: 0.9,
-        ease: [0.25, 0.46, 0.45, 0.94] as [number, number, number, number],
-        delay,
-      },
-    },
-  };
-}
+import { fadeUp } from "@/lib/animations";
+import { HERO, STATS } from "@/data/content";
 
 export default function HeroSection() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -48,7 +26,7 @@ export default function HeroSection() {
         className="absolute inset-0 w-full h-full object-cover scale-[1.03]"
         style={{ willChange: "transform" }}
       >
-        <source src={VIDEO_SRC} type="video/mp4" />
+        <source src={HERO.videoSrc} type="video/mp4" />
       </video>
 
       {/* ── Cinematic gradient overlays ───────────────────────── */}

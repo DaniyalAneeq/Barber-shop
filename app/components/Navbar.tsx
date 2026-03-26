@@ -4,14 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ScissorsIcon, Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import Link from "next/link";
-
-const NAV_LINKS = [
-  { label: "Home",     href: "#home" },
-  { label: "Services", href: "#services" },
-  { label: "About",    href: "#about" },
-  { label: "Gallery",  href: "#gallery" },
-  { label: "Contact",  href: "#contact" },
-];
+import { NAV_LINKS } from "@/data/content";
 
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);

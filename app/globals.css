@@ -61,11 +61,181 @@ body {
   transform: scale(0.97);
 }
 
+/* ── Gold gradient text ─────────────────────────────────────── */
+.text-gold-gradient {
+  background: linear-gradient(
+    135deg,
+    #B45309 0%,
+    #CA8A04 40%,
+    #D4A017 70%,
+    #F0C040 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Service card hover lift ────────────────────────────────── */
+.service-card {
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+
+.service-card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.6),
+    0 0 28px rgba(212, 160, 23, 0.1);
+}
+
+/* ── Gallery masonry grid ───────────────────────────────────── */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 640px) {
+  .gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .gallery-grid {
+    grid-template-columns: repeat(3, 1fr);
+    grid-auto-rows: 260px;
+    grid-auto-flow: row dense;
+  }
+  /* On desktop the grid rows control height; remove mobile aspect ratios */
+  .gallery-grid > * {
+    aspect-ratio: unset !important;
+  }
+}
+
+/* ── Form inputs ────────────────────────────────────────────── */
+.form-input,
+.form-select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  color: #ffffff;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+}
+
+.form-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.form-input:focus,
+.form-select:focus {
+  border-color: rgba(212, 160, 23, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.1);
+}
+
+.form-input.error,
+.form-select.error {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.04);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
+}
+
+/* Select arrow tint */
+.form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24'%3E%3Cpath stroke='%23CA8A04' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.875rem center;
+  padding-right: 2.75rem;
+  cursor: pointer;
+}
+
+.form-select option {
+  background: #1C1917;
+  color: #ffffff;
+}
+
+/* Date picker calendar icon */
+.form-input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6) sepia(1) saturate(3) hue-rotate(5deg);
+  cursor: pointer;
+  opacity: 0.7;
+}
+.form-input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* Disabled gold button */
+.btn-gold:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: 0 0 15px rgba(212, 160, 23, 0.2), 0 4px 15px rgba(0, 0, 0, 0.45);
+}
+
 /* ── Reduced-motion overrides ───────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .btn-gold,
   .btn-gold:hover {
     transition: none;
     transform: none;
+  }
+  .service-card:hover {
+    transform: none;
+  }
+}
+
+/* ── Keyframes (safety net — Tailwind v4 also provides these) ── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* ── Orbital timeline ───────────────────────────────────────── */
+@keyframes orbit-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Expanding ring halo on the center orb */
+@keyframes orbit-pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+/* Subtle glow breathe on the center orb */
+@keyframes orbit-orb-breathe {
+  0%, 100% { box-shadow: 0 0 28px rgba(212,160,23,0.45), 0 0 56px rgba(212,160,23,0.15); }
+  50%       { box-shadow: 0 0 52px rgba(212,160,23,0.75), 0 0 90px rgba(212,160,23,0.28); }
+}
+
+/* Soft glow pulse for related nodes */
+@keyframes orbit-node-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(212,160,23,0.25); }
+  50%       { box-shadow: 0 0 22px rgba(212,160,23,0.6); }
+}
+
+/* Respect reduced-motion for all orbit animations */
+@media (prefers-reduced-motion: reduce) {
+  [style*="orbit-spin"],
+  [style*="orbit-pulse-ring"],
+  [style*="orbit-orb-breathe"],
+  [style*="orbit-node-glow"] {
+    animation: none !important;
   }
 }
