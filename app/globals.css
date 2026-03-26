@@ -1,26 +1,71 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-gold:        #CA8A04;
+  --color-gold-light:  #D4A017;
+  --color-gold-glow:   #F0C040;
+  --color-dark-bg:     #0A0A0A;
+  --color-dark:        #1C1917;
+  --color-charcoal:    #44403C;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 5px; }
+::-webkit-scrollbar-track  { background: #0A0A0A; }
+::-webkit-scrollbar-thumb  { background: #44403C; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #CA8A04; }
+
+html { scrollbar-width: thin; scrollbar-color: #44403C #0A0A0A; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #0A0A0A;
+  color: #ffffff;
+  overflow-x: hidden;
+}
+
+/* ── Glassmorphism navbar ───────────────────────────────────── */
+.glass-nav {
+  background: rgba(10, 10, 10, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 4px 30px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ── Gold CTA button ────────────────────────────────────────── */
+.btn-gold {
+  background: linear-gradient(
+    135deg,
+    #92400E 0%,
+    #B45309 20%,
+    #CA8A04 50%,
+    #D4A017 75%,
+    #F0C040 100%
+  );
+  box-shadow:
+    0 0 25px rgba(212, 160, 23, 0.35),
+    0 6px 25px rgba(0, 0, 0, 0.55);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.btn-gold:hover {
+  box-shadow:
+    0 0 55px rgba(240, 192, 64, 0.55),
+    0 10px 35px rgba(0, 0, 0, 0.55);
+  transform: scale(1.04);
+}
+
+.btn-gold:active {
+  transform: scale(0.97);
+}
+
+/* ── Reduced-motion overrides ───────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .btn-gold,
+  .btn-gold:hover {
+    transition: none;
+    transform: none;
+  }
 }
