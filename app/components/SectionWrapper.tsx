@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { staggerContainer } from "@/lib/animations";
 
 interface SectionWrapperProps {
@@ -38,11 +38,13 @@ export default function SectionWrapper({
   style,
   viewportMargin = "-80px",
 }: SectionWrapperProps) {
+  const prefersReducedMotion = useReducedMotion();
+
   return (
     <motion.section
       id={id}
       variants={staggerContainer}
-      initial="hidden"
+      initial={prefersReducedMotion ? "visible" : "hidden"}
       whileInView="visible"
       viewport={{ once: true, margin: viewportMargin }}
       style={style}

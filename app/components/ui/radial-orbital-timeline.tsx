@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -49,12 +49,14 @@ export function RadialOrbitalTimeline({ timelineData }: { timelineData: Timeline
     return () => ro.disconnect();
   }, []);
 
+  const prefersReduced = useReducedMotion();
+
   const sq     = Math.min(dims.w, dims.h);
   const cx     = dims.w / 2;
   const cy     = dims.h / 2;
   const radius = sq * 0.37;
   const cardW  = Math.min(242, dims.w - 40);
-  const paused = activeId !== null;
+  const paused = activeId !== null || !!prefersReduced;
 
   // Static node positions (CSS animation handles rotation visually)
   const getInitialPos = useCallback(

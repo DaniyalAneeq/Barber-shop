@@ -7,7 +7,7 @@ import {
   useRef,
 } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion, type Variants } from "framer-motion";
 import Image from "next/image";
 import {
   XMarkIcon,
@@ -46,11 +46,18 @@ interface LightboxProps {
   onNext: () => void;
 }
 
-// Directional slide variants for image transitions
+// Directional slide variants — used when motion is allowed
 const slideVariants: Variants = {
   enter:  (d: number) => ({ opacity: 0, x: d * 70 }),
   center: { opacity: 1, x: 0 },
   exit:   (d: number) => ({ opacity: 0, x: d * -70 }),
+};
+
+// Fade-only variants — used when prefers-reduced-motion is set
+const fadeVariants: Variants = {
+  enter:  { opacity: 0 },
+  center: { opacity: 1 },
+  exit:   { opacity: 0 },
 };
 
 function Lightbox({
@@ -60,9 +67,10 @@ function Lightbox({
   onPrev,
   onNext,
 }: LightboxProps) {
-  const item    = GALLERY[activeIndex];
-  const modalRef = useRef<HTMLDivElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const item           = GALLERY[activeIndex];
+  const modalRef       = useRef<HTMLDivElement>(null);
+  const closeRef       = useRef<HTMLButtonElement>(null);
+  const prefersReduced = useReducedMotion();
 
   // ── Keyboard: Escape + arrows ──
   useEffect(() => {
@@ -135,11 +143,11 @@ function Lightbox({
             <motion.div
               key={activeIndex}
               custom={direction}
-              variants={slideVariants}
+              variants={prefersReduced ? fadeVariants : slideVariants}
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ duration: 0.32, ease: [...EASE_OUT] as [number,number,number,number] }}
+              transition={{ duration: prefersReduced ? 0.15 : 0.32, ease: [...EASE_OUT] as [number,number,number,number] }}
               className="absolute inset-0"
             >
               <Image
@@ -249,6 +257,7 @@ function GridItem({ item, rowSpan, colSpan, onOpen }: GridItemProps) {
           src={item.src}
           alt={item.alt}
           fill
+          loading="lazy"
           className="object-cover"
           sizes={`
             (max-width: 640px)  100vw,

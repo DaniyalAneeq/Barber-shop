@@ -17,6 +17,16 @@
 
 html { scrollbar-width: thin; scrollbar-color: #44403C #0A0A0A; }
 
+/* ── Smooth scroll ──────────────────────────────────────────── */
+:root {
+  scroll-behavior: smooth;
+}
+
+/* Offset anchor targets below the fixed floating navbar (~72px + gap) */
+section[id] {
+  scroll-margin-top: 5.5rem;
+}
+
 body {
   background: #0A0A0A;
   color: #ffffff;
