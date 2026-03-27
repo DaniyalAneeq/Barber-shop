@@ -32,6 +32,9 @@ class ChatSession(SQLModel, table=True):
     title: Optional[str] = Field(default=None, max_length=255)
     is_active: bool = Field(default=True)
     message_count: int = Field(default=0)
+    # OpenAI Responses API response ID from the last turn in this session.
+    # Passed as previous_response_id on the next turn for server-side context chaining.
+    last_response_id: Optional[str] = Field(default=None, max_length=255)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
     last_message_at: Optional[datetime] = Field(default=None)

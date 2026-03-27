@@ -14,18 +14,19 @@ Middleware stack (inside-out):
   5. Routers
 """
 import logging
+import os
 import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-
+from dotenv import load_dotenv
 from app.config import get_settings
 from app.database import close_db, init_db
 from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.routers import auth, chat
-
+load_dotenv()
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.DEBUG if get_settings().debug else logging.INFO,
@@ -34,6 +35,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# pydantic-settings reads .env into the Settings object but does NOT populate
+# os.environ. The OpenAI SDK and Agents SDK read OPENAI_API_KEY from os.environ,
+# so we propagate it explicitly here.
+if settings.openai_api_key:
+    os.environ.setdefault("OPENAI_API_KEY", settings.openai_api_key)
 
 
 # ── App ───────────────────────────────────────────────────────────────────────

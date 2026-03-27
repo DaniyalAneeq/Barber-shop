@@ -24,10 +24,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, desc
 
-from app.database import get_session
+from app.database import get_session, AsyncSessionLocal
 from app.models.chat import ChatSession, Message
 from app.models.user import User
-from app.services.openai_service import chat_completion, stream_chat_completion
+from app.services.openai_service import run_agent, stream_agent_response
 from app.services.rate_limiter import check_ip_rate, check_user_rate
 from app.utils.deps import get_current_user
 from app.config import get_settings
@@ -116,27 +116,6 @@ async def _get_or_create_session(
     return session
 
 
-async def _load_history(
-    session_id: uuid.UUID,
-    db: AsyncSession,
-    limit: int = 40,
-) -> list[dict]:
-    """Load recent messages for context building."""
-    stmt = (
-        select(Message)
-        .where(Message.session_id == session_id)
-        .order_by(desc(Message.created_at))
-        .limit(limit)
-    )
-    result = await db.execute(stmt)
-    msgs = result.scalars().all()
-    # Reverse to chronological order
-    return [
-        {"role": m.role, "content": m.content, "extra": m.extra}
-        for m in reversed(msgs)
-    ]
-
-
 # In-memory file store (keyed by ref UUID). For production use S3/GCS.
 _file_store: dict[str, dict] = {}
 
@@ -157,12 +136,7 @@ async def send_message(
     session = await _get_or_create_session(
         current_user, body.session_id, db, body.message
     )
-    history = await _load_history(session.id, db)
-
-    # Resolve file attachment
-    file_data: Optional[dict] = None
-    if body.file_ref:
-        file_data = _file_store.get(body.file_ref)
+    file_data: Optional[dict] = _file_store.get(body.file_ref) if body.file_ref else None
 
     # Save user message
     user_msg = Message(
@@ -175,15 +149,15 @@ async def send_message(
     db.add(user_msg)
     await db.flush()
 
-    # OpenAI call
+    # Agent run — pass previous_response_id for Responses API conversation chaining
     try:
-        result = await chat_completion(
-            history=history,
+        result = await run_agent(
             user_message=body.message,
+            previous_response_id=session.last_response_id,
             file_data=file_data,
         )
     except Exception as exc:
-        logger.error("OpenAI error for user %s: %s", current_user.id, exc)
+        logger.error("Agent error for user %s: %s", current_user.id, exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service temporarily unavailable. Please try again.",
@@ -195,15 +169,16 @@ async def send_message(
         user_id=current_user.id,
         role="assistant",
         content=result["content"],
-        tokens_used=result["tokens_used"],
     )
     db.add(ai_msg)
 
-    # Update session metadata
+    # Update session metadata + store new response_id for next turn
     now = datetime.utcnow()
     session.message_count += 2
     session.last_message_at = now
     session.updated_at = now
+    if result["last_response_id"]:
+        session.last_response_id = result["last_response_id"]
 
     await db.commit()
 
@@ -211,7 +186,6 @@ async def send_message(
         id=str(ai_msg.id),
         session_id=str(session.id),
         content=result["content"],
-        tokens_used=result["tokens_used"],
         created_at=ai_msg.created_at,
     )
 
@@ -230,14 +204,11 @@ async def stream_message(
     session = await _get_or_create_session(
         current_user, body.session_id, db, body.message
     )
-    history = await _load_history(session.id, db)
     session_id = str(session.id)
+    previous_response_id = session.last_response_id
+    file_data: Optional[dict] = _file_store.get(body.file_ref) if body.file_ref else None
 
-    file_data: Optional[dict] = None
-    if body.file_ref:
-        file_data = _file_store.get(body.file_ref)
-
-    # Save user message immediately
+    # Save user message immediately so it appears in history right away
     user_msg = Message(
         session_id=session.id,
         user_id=current_user.id,
@@ -251,48 +222,63 @@ async def stream_message(
 
     async def event_stream() -> AsyncGenerator[str, None]:
         """Yield SSE-formatted events."""
-        full_content = []
+        full_content: list[str] = []
+        new_response_id: Optional[str] = None
 
-        # Send session_id first so client can store it
+        # Send session_id first so client can associate subsequent messages
         yield f"event: session\ndata: {session_id}\n\n"
 
         try:
-            async for chunk in stream_chat_completion(
-                history=history,
+            async for chunk, resp_id in stream_agent_response(
                 user_message=body.message,
+                previous_response_id=previous_response_id,
                 file_data=file_data,
             ):
-                full_content.append(chunk)
-                # Escape newlines in SSE data field
-                safe = chunk.replace("\n", "\\n")
-                yield f"data: {safe}\n\n"
-
+                if resp_id is not None:
+                    # Final sentinel — carries the last_response_id
+                    new_response_id = resp_id
+                elif chunk:
+                    full_content.append(chunk)
+                    safe = chunk.replace("\n", "\\n")
+                    yield f"data: {safe}\n\n"
         except Exception as exc:
-            logger.error("Stream error: %s", exc)
-            yield "event: error\ndata: AI service error\n\n"
+            logger.error("event_stream agent error: %s", exc, exc_info=True)
+            yield "event: error\ndata: stream failed\n\n"
             return
 
-        # Persist assistant message after stream completes
-        async with db.begin():
-            ai_content = "".join(full_content)
-            ai_msg = Message(
-                session_id=uuid.UUID(session_id),
-                user_id=current_user.id,
-                role="assistant",
-                content=ai_content,
-            )
-            db.add(ai_msg)
+        # Persist assistant message + update session after stream completes.
+        # Use a fresh session — the request-scoped `db` may be in an undefined
+        # state once the endpoint function has returned and StreamingResponse
+        # starts iterating this generator.
+        ai_msg_id: Optional[str] = None
+        try:
+            async with AsyncSessionLocal() as new_db:
+                async with new_db.begin():
+                    ai_content = "".join(full_content)
+                    ai_msg = Message(
+                        session_id=uuid.UUID(session_id),
+                        user_id=current_user.id,
+                        role="assistant",
+                        content=ai_content,
+                    )
+                    new_db.add(ai_msg)
+                    await new_db.flush()
+                    ai_msg_id = str(ai_msg.id)
 
-            now = datetime.utcnow()
-            upd_stmt = select(ChatSession).where(ChatSession.id == uuid.UUID(session_id))
-            upd_result = await db.execute(upd_stmt)
-            sess = upd_result.scalar_one_or_none()
-            if sess:
-                sess.message_count += 2
-                sess.last_message_at = now
-                sess.updated_at = now
+                    now = datetime.utcnow()
+                    upd_stmt = select(ChatSession).where(ChatSession.id == uuid.UUID(session_id))
+                    upd_result = await new_db.execute(upd_stmt)
+                    sess = upd_result.scalar_one_or_none()
+                    if sess:
+                        sess.message_count += 2
+                        sess.last_message_at = now
+                        sess.updated_at = now
+                        if new_response_id:
+                            sess.last_response_id = new_response_id
+        except Exception as exc:
+            logger.error("event_stream DB persist error: %s", exc, exc_info=True)
 
-        yield f"event: done\ndata: {str(ai_msg.id)}\n\n"
+        yield f"event: done\ndata: {ai_msg_id or ''}\n\n"
 
     return StreamingResponse(
         event_stream(),
