@@ -100,8 +100,13 @@ export function useChat() {
             );
           }
         })
-        .catch(() => {
-          // No history yet — that's fine
+        .catch((err) => {
+          if (err instanceof ApiError && err.status === 404) {
+            // Stale session_id — clear it so next message creates a fresh session
+            setSessionId(undefined);
+            if (user) saveSession({ user });
+          }
+          // Otherwise no history yet — that's fine
         });
     }
   }, [step, user, sessionId, historyLoaded]);
@@ -160,6 +165,8 @@ export function useChat() {
           token: data.access_token,
         };
         setUser(newUser);
+        setSessionId(undefined);
+        setHistoryLoaded(false);
         saveSession({ user: newUser });
         setStep("chat");
       } catch (err) {

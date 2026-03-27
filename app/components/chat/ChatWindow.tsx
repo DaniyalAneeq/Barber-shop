@@ -6,6 +6,7 @@
  * - Keyboard shortcut: Enter to send, Shift+Enter for newline
  * - Drag-and-drop file upload
  * - Optimistic message display
+ * - "My Appointments" panel accessible from the header
  */
 
 import {
@@ -19,6 +20,7 @@ import {
   useState,
 } from "react";
 import type { ChatMessage, ChatUser, SendStatus, UploadedFile } from "./types";
+import { type Appointment, getMyAppointments } from "@/lib/chatApi";
 import Message from "./Message";
 
 interface Props {
@@ -43,6 +45,27 @@ const ALLOWED_TYPES = [
 ];
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 
+// ── Date / time formatting for the appointments panel ─────────────────────────
+
+function fmtApptDate(dateStr: string): string {
+  // Append noon to avoid DST off-by-one-day issues
+  const d = new Date(dateStr + "T12:00:00");
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function fmtApptTime(timeStr: string): string {
+  const [h, m] = timeStr.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${m.toString().padStart(2, "0")} ${ampm}`;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function ChatWindow({
   user,
   messages,
@@ -59,6 +82,13 @@ export default function ChatWindow({
   const [isDragging, setIsDragging] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [fileError, setFileError] = useState<string | null>(null);
+
+  // Appointments panel state
+  const [showAppts, setShowAppts] = useState(false);
+  const [appts, setAppts] = useState<Appointment[] | null>(null);
+  const [apptLoading, setApptLoading] = useState(false);
+  const [apptError, setApptError] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,10 +97,10 @@ export default function ChatWindow({
 
   // Auto-scroll to bottom when new messages arrive (if user is at bottom)
   useEffect(() => {
-    if (isAtBottom) {
+    if (isAtBottom && !showAppts) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isAtBottom]);
+  }, [messages, isAtBottom, showAppts]);
 
   // Track whether user has scrolled up
   const handleScroll = useCallback(() => {
@@ -101,7 +131,6 @@ export default function ChatWindow({
     if (!text || isLoading) return;
     onSend(text);
     setInput("");
-    // Reset textarea height
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
@@ -121,7 +150,7 @@ export default function ChatWindow({
   function handleFileInput(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file) validateAndUpload(file);
-    e.target.value = ""; // reset so same file can be re-selected
+    e.target.value = "";
   }
 
   function handleDrop(e: DragEvent) {
@@ -131,10 +160,36 @@ export default function ChatWindow({
     if (file) validateAndUpload(file);
   }
 
+  async function openAppointments() {
+    setShowAppts(true);
+    setApptLoading(true);
+    setApptError(null);
+    try {
+      const data = await getMyAppointments(user.token);
+      setAppts(data.appointments);
+    } catch {
+      setApptError("Could not load appointments. Please try again.");
+    } finally {
+      setApptLoading(false);
+    }
+  }
+
+  function closeAppointments() {
+    setShowAppts(false);
+  }
+
+  function bookViaChat() {
+    setShowAppts(false);
+    onSend("I'd like to book an appointment");
+  }
+
   return (
     <div
       className="flex flex-col h-full"
-      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragging(true);
+      }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
@@ -157,7 +212,9 @@ export default function ChatWindow({
             >
               Blade
             </p>
-            <p className="text-[9px] text-white/40 mt-0.5">AI Barbershop Assistant</p>
+            <p className="text-[9px] text-white/40 mt-0.5">
+              AI Barbershop Assistant
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -166,6 +223,39 @@ export default function ChatWindow({
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
             Online
           </span>
+
+          {/* My Appointments button */}
+          <button
+            onClick={showAppts ? closeAppointments : openAppointments}
+            title="My Appointments"
+            className="flex items-center justify-center w-6 h-6 rounded-md transition-all"
+            style={{
+              background: showAppts
+                ? "rgba(202,138,4,0.25)"
+                : "rgba(255,255,255,0.05)",
+              border: showAppts
+                ? "1px solid rgba(202,138,4,0.5)"
+                : "1px solid rgba(255,255,255,0.08)",
+              color: showAppts ? "#D4A017" : "rgba(255,255,255,0.35)",
+            }}
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+          </button>
+
           {/* User name + logout */}
           <button
             onClick={onLogout}
@@ -177,72 +267,210 @@ export default function ChatWindow({
         </div>
       </div>
 
-      {/* Message list */}
-      <div
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-3 py-3 space-y-1"
-        style={{ scrollbarWidth: "thin", scrollbarColor: "#44403C #0A0A0A" }}
-      >
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-8">
-            <div
-              className="w-14 h-14 rounded-full flex items-center justify-center text-2xl"
-              style={{
-                background: "rgba(202,138,4,0.1)",
-                border: "1px solid rgba(202,138,4,0.2)",
-              }}
+      {/* ── Appointments panel ─────────────────────────────────────────────── */}
+      {showAppts ? (
+        <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin", scrollbarColor: "#44403C #0A0A0A" }}>
+          {/* Panel sub-header */}
+          <div
+            className="flex items-center gap-2 px-3 py-2.5 sticky top-0"
+            style={{
+              borderBottom: "1px solid rgba(255,255,255,0.06)",
+              background: "#0F0F0F",
+            }}
+          >
+            <button
+              onClick={closeAppointments}
+              className="text-[10px] text-white/40 hover:text-white/70 transition-colors"
             >
-              ✂
-            </div>
-            <div>
-              <p
-                className="text-sm font-semibold"
-                style={{ color: "#D4A017", fontFamily: "var(--font-bungee)" }}
-              >
-                Hey {user.name.split(" ")[0]}!
-              </p>
-              <p className="text-[11px] text-white/40 mt-1 max-w-[200px] mx-auto leading-relaxed">
-                Ask me about services, pricing, hours, or book an appointment.
-              </p>
-            </div>
-            {/* Quick prompts */}
-            <div className="flex flex-col gap-1.5 w-full max-w-[240px]">
-              {[
-                "What services do you offer?",
-                "How much is a fade?",
-                "What are your hours?",
-              ].map((q) => (
-                <button
-                  key={q}
-                  onClick={() => onSend(q)}
-                  className="text-[11px] text-left px-3 py-2 rounded-lg transition-all"
+              ← Back
+            </button>
+            <span
+              className="text-[11px] font-semibold"
+              style={{ color: "#D4A017" }}
+            >
+              My Appointments
+            </span>
+          </div>
+
+          <div className="px-3 py-3">
+            {/* Loading */}
+            {apptLoading && (
+              <div className="flex justify-center py-8">
+                <span
+                  className="w-5 h-5 rounded-full border-2 border-white/10 border-t-yellow-500 inline-block"
+                  style={{ animation: "spin 0.8s linear infinite" }}
+                />
+              </div>
+            )}
+
+            {/* Error */}
+            {apptError && !apptLoading && (
+              <p className="text-xs text-red-400 text-center py-4">{apptError}</p>
+            )}
+
+            {/* Empty state */}
+            {!apptLoading && !apptError && appts !== null && appts.length === 0 && (
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
                   style={{
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    color: "rgba(255,255,255,0.6)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "rgba(202,138,4,0.4)";
-                    e.currentTarget.style.color = "#D4A017";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
-                    e.currentTarget.style.color = "rgba(255,255,255,0.6)";
+                    background: "rgba(202,138,4,0.08)",
+                    border: "1px solid rgba(202,138,4,0.2)",
+                    color: "rgba(202,138,4,0.5)",
+                    fontSize: "1.1rem",
                   }}
                 >
-                  {q} →
+                  📅
+                </div>
+                <p className="text-xs text-white/40">No upcoming appointments</p>
+                <button
+                  onClick={bookViaChat}
+                  className="text-[11px] px-3 py-1.5 rounded-lg transition-all"
+                  style={{
+                    background: "rgba(202,138,4,0.15)",
+                    border: "1px solid rgba(202,138,4,0.35)",
+                    color: "#D4A017",
+                  }}
+                >
+                  Book an appointment →
                 </button>
-              ))}
-            </div>
-          </div>
-        )}
+              </div>
+            )}
 
-        {messages.map((msg) => (
-          <Message key={msg.id} message={msg} />
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
+            {/* Appointment cards */}
+            {!apptLoading &&
+              !apptError &&
+              appts !== null &&
+              appts.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {appts.map((appt) => (
+                    <div
+                      key={appt.id}
+                      className="rounded-xl px-3 py-2.5"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(202,138,4,0.2)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p
+                            className="text-xs font-semibold leading-tight"
+                            style={{ color: "#F0C040" }}
+                          >
+                            {appt.service}
+                          </p>
+                          <p className="text-[10px] text-white/50 mt-0.5">
+                            with {appt.barber}
+                          </p>
+                        </div>
+                        <span
+                          className="text-[9px] px-1.5 py-0.5 rounded-full flex-shrink-0"
+                          style={{
+                            background: "rgba(52,211,153,0.12)",
+                            border: "1px solid rgba(52,211,153,0.25)",
+                            color: "#6ee7b7",
+                          }}
+                        >
+                          {appt.status}
+                        </span>
+                      </div>
+                      <div
+                        className="flex items-center gap-3 mt-2 pt-2"
+                        style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+                      >
+                        <span className="text-[10px] text-white/50">
+                          📅 {fmtApptDate(appt.date)}
+                        </span>
+                        <span className="text-[10px] text-white/50">
+                          🕐 {fmtApptTime(appt.start_time)}
+                        </span>
+                        <span className="text-[10px] text-white/40 ml-auto">
+                          ${appt.price.toFixed(0)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </div>
+        </div>
+      ) : (
+        /* ── Message list ───────────────────────────────────────────────────── */
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-3 py-3 space-y-1"
+          style={{ scrollbarWidth: "thin", scrollbarColor: "#44403C #0A0A0A" }}
+        >
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-center py-8">
+              <div
+                className="w-14 h-14 rounded-full flex items-center justify-center text-2xl"
+                style={{
+                  background: "rgba(202,138,4,0.1)",
+                  border: "1px solid rgba(202,138,4,0.2)",
+                }}
+              >
+                ✂
+              </div>
+              <div>
+                <p
+                  className="text-sm font-semibold"
+                  style={{
+                    color: "#D4A017",
+                    fontFamily: "var(--font-bungee)",
+                  }}
+                >
+                  Hey {user.name.split(" ")[0]}!
+                </p>
+                <p className="text-[11px] text-white/40 mt-1 max-w-[200px] mx-auto leading-relaxed">
+                  Ask me about services, pricing, hours, or book an appointment.
+                </p>
+              </div>
+              {/* Quick prompts */}
+              <div className="flex flex-col gap-1.5 w-full max-w-[240px]">
+                {[
+                  "What services do you offer?",
+                  "How much is a fade?",
+                  "What are your hours?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => onSend(q)}
+                    className="text-[11px] text-left px-3 py-2 rounded-lg transition-all"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      color: "rgba(255,255,255,0.6)",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "rgba(202,138,4,0.4)";
+                      e.currentTarget.style.color = "#D4A017";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor =
+                        "rgba(255,255,255,0.08)";
+                      e.currentTarget.style.color = "rgba(255,255,255,0.6)";
+                    }}
+                  >
+                    {q} →
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <Message
+              key={msg.id}
+              message={msg}
+              onSend={isLoading ? undefined : onSend}
+            />
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+      )}
 
       {/* Drag-over overlay */}
       {isDragging && (
@@ -274,7 +502,9 @@ export default function ChatWindow({
           }}
         >
           <span className="flex-1">{error}</span>
-          <button onClick={onClearError} className="opacity-60 hover:opacity-100">✕</button>
+          <button onClick={onClearError} className="opacity-60 hover:opacity-100">
+            ✕
+          </button>
         </div>
       )}
 
@@ -321,7 +551,12 @@ export default function ChatWindow({
           }}
         >
           <span className="flex-1">{fileError}</span>
-          <button onClick={() => setFileError(null)} className="opacity-60 hover:opacity-100">✕</button>
+          <button
+            onClick={() => setFileError(null)}
+            className="opacity-60 hover:opacity-100"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -423,8 +658,14 @@ export default function ChatWindow({
       </form>
 
       <style jsx>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        textarea::-webkit-scrollbar { display: none; }
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        textarea::-webkit-scrollbar {
+          display: none;
+        }
       `}</style>
     </div>
   );

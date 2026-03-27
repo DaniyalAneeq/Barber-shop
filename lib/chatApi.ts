@@ -68,6 +68,25 @@ export interface UploadResponse {
   filename: string;
 }
 
+export interface Appointment {
+  id: number;
+  date: string;         // "YYYY-MM-DD"
+  start_time: string;   // "HH:MM"
+  end_time: string;     // "HH:MM"
+  barber: string;
+  service: string;
+  price: number;
+  duration_minutes: number;
+  status: string;
+  notes: string | null;
+}
+
+export interface AppointmentsResponse {
+  customer_id: string;
+  appointments: Appointment[];
+  count: number;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -170,6 +189,12 @@ export async function getHistory(
   return request<HistoryResponse>(`/api/chat/history${qs}`, { token });
 }
 
+export async function getMyAppointments(
+  token: string,
+): Promise<AppointmentsResponse> {
+  return request<AppointmentsResponse>("/api/appointments/me", { token });
+}
+
 export async function uploadFile(
   file: File,
   token: string,
@@ -203,50 +228,61 @@ export async function streamMessage(
   onDone: (messageId: string) => void,
   onError: (err: string) => void,
 ): Promise<void> {
-  const res = await fetch(`${BASE_URL}/api/chat/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  // 5-minute abort covers multi-turn runs with several tool calls in sequence
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body?.detail || "Stream failed");
-  }
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    const res = await fetch(`${BASE_URL}/api/chat/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
 
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(res.status, body?.detail || "Stream failed");
+    }
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
+    reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
 
-    let eventType = "message";
-    for (const line of lines) {
-      if (line.startsWith("event: ")) {
-        eventType = line.slice(7).trim();
-      } else if (line.startsWith("data: ")) {
-        const data = line.slice(6);
-        if (eventType === "session") {
-          onSessionId(data);
-        } else if (eventType === "done") {
-          onDone(data);
-        } else if (eventType === "error") {
-          onError(data);
-        } else {
-          // Un-escape newlines
-          onChunk(data.replace(/\\n/g, "\n"));
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      let eventType = "message";
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
+          const data = line.slice(6);
+          if (eventType === "session") {
+            onSessionId(data);
+          } else if (eventType === "done") {
+            onDone(data);
+          } else if (eventType === "error") {
+            onError(data);
+          } else {
+            // Un-escape newlines
+            onChunk(data.replace(/\\n/g, "\n"));
+          }
+          eventType = "message";
         }
-        eventType = "message";
       }
     }
+  } finally {
+    clearTimeout(timeoutId);
+    reader?.cancel().catch(() => {});
   }
 }

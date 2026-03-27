@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from app.config import get_settings
 from app.database import close_db, init_db
 from app.middleware.error_handler import ErrorHandlerMiddleware
-from app.routers import auth, chat
+from app.routers import auth, chat, appointments
 load_dotenv()
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -68,6 +68,7 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth.router)
 app.include_router(chat.router)
+app.include_router(appointments.router)
 
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────

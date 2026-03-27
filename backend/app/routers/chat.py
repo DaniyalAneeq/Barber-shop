@@ -24,10 +24,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, desc
 
+from app.agents.runner import run_agent, stream_agent_response
 from app.database import get_session, AsyncSessionLocal
 from app.models.chat import ChatSession, Message
 from app.models.user import User
-from app.services.openai_service import run_agent, stream_agent_response
 from app.services.rate_limiter import check_ip_rate, check_user_rate
 from app.utils.deps import get_current_user
 from app.config import get_settings
@@ -149,10 +149,13 @@ async def send_message(
     db.add(user_msg)
     await db.flush()
 
-    # Agent run — pass previous_response_id for Responses API conversation chaining
+    # Agent run — inject authenticated user identity + Responses API chaining
     try:
         result = await run_agent(
             user_message=body.message,
+            customer_id=str(current_user.id),
+            customer_email=current_user.email,
+            customer_name=current_user.name,
             previous_response_id=session.last_response_id,
             file_data=file_data,
         )
@@ -163,12 +166,21 @@ async def send_message(
             detail="AI service temporarily unavailable. Please try again.",
         )
 
-    # Save assistant message
+    # Save assistant message — stash agent metadata in extra JSONB
+    ai_extra: dict = {}
+    if result.get("agent"):
+        ai_extra["agent"] = result["agent"]
+    if result.get("tool_calls"):
+        ai_extra["tool_calls"] = result["tool_calls"]
+    if result.get("handoffs"):
+        ai_extra["handoffs"] = result["handoffs"]
+
     ai_msg = Message(
         session_id=session.id,
         user_id=current_user.id,
         role="assistant",
         content=result["content"],
+        extra=ai_extra or None,
     )
     db.add(ai_msg)
 
@@ -224,19 +236,25 @@ async def stream_message(
         """Yield SSE-formatted events."""
         full_content: list[str] = []
         new_response_id: Optional[str] = None
+        ai_meta: dict = {}
 
         # Send session_id first so client can associate subsequent messages
         yield f"event: session\ndata: {session_id}\n\n"
 
         try:
-            async for chunk, resp_id in stream_agent_response(
+            async for chunk, resp_id, meta in stream_agent_response(
                 user_message=body.message,
+                customer_id=str(current_user.id),
+                customer_email=current_user.email,
+                customer_name=current_user.name,
                 previous_response_id=previous_response_id,
                 file_data=file_data,
             ):
-                if resp_id is not None:
-                    # Final sentinel — carries the last_response_id
+                if resp_id is not None or meta is not None:
+                    # Final sentinel — carries response_id and metadata
                     new_response_id = resp_id
+                    if meta:
+                        ai_meta = meta
                 elif chunk:
                     full_content.append(chunk)
                     safe = chunk.replace("\n", "\\n")
@@ -255,11 +273,13 @@ async def stream_message(
             async with AsyncSessionLocal() as new_db:
                 async with new_db.begin():
                     ai_content = "".join(full_content)
+                    ai_extra: dict = {k: v for k, v in ai_meta.items() if v}
                     ai_msg = Message(
                         session_id=uuid.UUID(session_id),
                         user_id=current_user.id,
                         role="assistant",
                         content=ai_content,
+                        extra=ai_extra or None,
                     )
                     new_db.add(ai_msg)
                     await new_db.flush()
