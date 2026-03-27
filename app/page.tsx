@@ -6,6 +6,7 @@ import GallerySection from "./components/GallerySection";
 import JourneySection from "./components/sections/JourneySection";
 import ContactSection from "./components/ContactSection";
 import BarberFooter from "./components/footer";
+import ChatWidget from "./components/chat/ChatWidget";
 
 export default function Page() {
   return (
@@ -18,6 +19,8 @@ export default function Page() {
       <JourneySection />
       <ContactSection />
       <BarberFooter />
+      {/* AI Chat Assistant — floats bottom-right */}
+      <ChatWidget />
     </main>
   );
 }
