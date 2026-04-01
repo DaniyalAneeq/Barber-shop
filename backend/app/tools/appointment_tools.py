@@ -13,6 +13,7 @@ from datetime import date, time, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.database import AsyncSessionLocal
 from app.services.email_service import (
@@ -435,20 +436,27 @@ async def book_appointment(
                 )
 
             # ── insert ───────────────────────────────────────────────────────
-            row = (await db.execute(
-                text(
-                    "INSERT INTO appointments "
-                    "  (customer_id, barber_id, service_id, "
-                    "   appointment_date, start_time, end_time, status) "
-                    "VALUES "
-                    "  (:cid, :bid, :sid, :d, :start_t, :end_t, 'confirmed') "
-                    "RETURNING id, created_at"
-                ),
-                {
-                    "cid": customer_id, "bid": barber_id, "sid": service_id,
-                    "d": appt_date, "start_t": appt_time, "end_t": end_time,
-                },
-            )).mappings().one()
+            try:
+                row = (await db.execute(
+                    text(
+                        "INSERT INTO appointments "
+                        "  (customer_id, barber_id, service_id, "
+                        "   appointment_date, start_time, end_time, status) "
+                        "VALUES "
+                        "  (:cid, :bid, :sid, :d, :start_t, :end_t, 'confirmed') "
+                        "RETURNING id, created_at"
+                    ),
+                    {
+                        "cid": customer_id, "bid": barber_id, "sid": service_id,
+                        "d": appt_date, "start_t": appt_time, "end_t": end_time,
+                    },
+                )).mappings().one()
+            except IntegrityError as exc:
+                log.error("book_appointment IntegrityError: %s", exc)
+                return _err(
+                    "That time slot was just taken by another booking. "
+                    "Please choose a different time."
+                )
 
     result = _ok({
         "appointment_id": row["id"],
