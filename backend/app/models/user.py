@@ -64,7 +64,13 @@ class VerificationCode(SQLModel, table=True):
 
     @property
     def is_expired(self) -> bool:
-        return datetime.utcnow() > self.expires_at
+        now = datetime.now(timezone.utc)
+        expires = self.expires_at
+        # asyncpg returns tz-aware datetimes for TIMESTAMPTZ columns; normalise
+        # if naive (e.g. freshly-created before first DB round-trip).
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return now > expires
 
     @property
     def is_exhausted(self) -> bool:

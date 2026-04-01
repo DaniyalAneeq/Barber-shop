@@ -88,9 +88,13 @@ function renderMarkdown(content: string): ReactNode[] {
       continue;
     }
 
-    // ## or # heading
-    if (line.startsWith("## ") || line.startsWith("# ")) {
-      const text = line.startsWith("## ") ? line.slice(3) : line.slice(2);
+    // ###, ##, or # heading
+    if (line.startsWith("### ") || line.startsWith("## ") || line.startsWith("# ")) {
+      const text = line.startsWith("### ")
+        ? line.slice(4)
+        : line.startsWith("## ")
+          ? line.slice(3)
+          : line.slice(2);
       nodes.push(
         <p
           key={key++}

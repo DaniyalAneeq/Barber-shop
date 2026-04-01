@@ -4,7 +4,8 @@
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
       "WebFetch(domain:openai.github.io)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "mcp__neon__run_sql"
     ]
   }
 }

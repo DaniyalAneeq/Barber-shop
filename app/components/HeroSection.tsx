@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { fadeUp } from "@/lib/animations";
 import { HERO, STATS } from "@/data/content";
+import Link from "next/link";
 
 export default function HeroSection() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -95,9 +96,10 @@ export default function HeroSection() {
             initial="hidden"
             animate="visible"
           >
+            <Link href="#contact">
             <button
               className="btn-gold inline-flex items-center gap-3 px-8 py-4 rounded-full
-                font-semibold text-sm md:text-base tracking-wider uppercase cursor-pointer"
+              font-semibold text-sm md:text-base tracking-wider uppercase cursor-pointer"
               style={{
                 fontFamily: "var(--font-inter)",
                 color: "#0A0A0A",
@@ -120,6 +122,7 @@ export default function HeroSection() {
                 />
               </svg>
             </button>
+            </Link>
           </motion.div>
 
           {/* Stats row */}

@@ -8,6 +8,7 @@ Endpoints:
   POST /api/chat/session  — create a new session
   POST /api/chat/upload   — upload a file (image/pdf) and get a reference
 """
+import asyncio
 import base64
 import logging
 import mimetypes
@@ -120,6 +121,33 @@ async def _get_or_create_session(
 _file_store: dict[str, dict] = {}
 
 
+async def _save_user_msg_bg(
+    session_id: uuid.UUID,
+    user_id: uuid.UUID,
+    content: str,
+    file_ref: Optional[str],
+) -> None:
+    """
+    Persist a user message in a fresh DB session.
+
+    Runs as a fire-and-forget asyncio task so the SSE stream can start
+    immediately after the session is committed, without waiting for this write.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                msg = Message(
+                    session_id=session_id,
+                    user_id=user_id,
+                    role="user",
+                    content=content,
+                    extra={"file_ref": file_ref} if file_ref else None,
+                )
+                db.add(msg)
+    except Exception as exc:
+        logger.error("Background user-message save failed: %s", exc)
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/message", response_model=MessageResponse)
@@ -218,19 +246,24 @@ async def stream_message(
     )
     session_id = str(session.id)
     previous_response_id = session.last_response_id
+
+    # Commit now so the session row is visible to the background task's
+    # separate DB connection (FK constraint on messages.session_id).
+    await db.commit()
+
     file_data: Optional[dict] = _file_store.get(body.file_ref) if body.file_ref else None
 
-    # Save user message immediately so it appears in history right away
-    user_msg = Message(
-        session_id=session.id,
-        user_id=current_user.id,
-        role="user",
-        content=body.message,
-        extra={"file_ref": body.file_ref} if body.file_ref else None,
+    # Fire-and-forget: persist the user message in the background.
+    # This saves 2 DB round-trips (flush + commit) from the critical path
+    # so the SSE stream — and therefore the agent — starts immediately.
+    asyncio.create_task(
+        _save_user_msg_bg(
+            session_id=session.id,
+            user_id=current_user.id,
+            content=body.message,
+            file_ref=body.file_ref,
+        )
     )
-    db.add(user_msg)
-    await db.flush()
-    await db.commit()
 
     async def event_stream() -> AsyncGenerator[str, None]:
         """Yield SSE-formatted events."""

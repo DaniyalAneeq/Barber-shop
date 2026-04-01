@@ -21,6 +21,7 @@ from app.services.email_service import (
     send_cancellation_email,
     send_reschedule_email,
 )
+from app.utils.date_parser import resolve_date
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +75,46 @@ def _fmt_date(d: date) -> str:
     return d.strftime("%A, %B %-d")
 
 
+def _validate_appointment_date(date_str: str) -> tuple[bool, str, Optional[date]]:
+    """
+    Validate that *date_str* is a parseable future date within the 60-day booking window.
+
+    Returns:
+        (is_valid, message, date_object)
+        - is_valid=False  → message is a user-friendly error; date_object is None.
+        - is_valid=True   → message is "Valid"; date_object is the parsed date.
+    """
+    try:
+        appointment_date = date.fromisoformat(date_str)
+    except (ValueError, TypeError):
+        return (
+            False,
+            f"I couldn't understand the date '{date_str}'. "
+            "Please use a format like 'April 5, 2026' or '2026-04-05'.",
+            None,
+        )
+
+    today = date.today()
+    if appointment_date < today:
+        return (
+            False,
+            f"The date {appointment_date.strftime('%B %d, %Y')} is in the past. "
+            "Please choose a future date.",
+            None,
+        )
+
+    cutoff = today + timedelta(days=60)
+    if appointment_date > cutoff:
+        return (
+            False,
+            f"I can only book up to 60 days in advance. "
+            f"Please choose a date before {cutoff.strftime('%B %d, %Y')}.",
+            None,
+        )
+
+    return True, "Valid", appointment_date
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. get_services
 # ─────────────────────────────────────────────────────────────────────────────
@@ -102,11 +143,13 @@ async def get_services() -> dict:
 # 2. get_barbers
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def get_barbers(specialty: Optional[str] = None) -> dict:
+async def get_barbers(specialty: Optional[str] = None, name: Optional[str] = None) -> dict:
     """
-    Return active barbers.
-    If specialty is given (e.g. 'fade'), filter to barbers whose specialties
-    JSONB array contains that value.
+    Return active barbers, optionally filtered by specialty or looked up by name.
+
+    If *name* is provided, a case-insensitive search is performed. When no match
+    is found, the response includes found=False plus the full list of active barbers
+    so the agent can immediately show the customer what's available.
     """
     async with AsyncSessionLocal() as db:
         if specialty:
@@ -127,7 +170,7 @@ async def get_barbers(specialty: Optional[str] = None) -> dict:
                 "FROM barbers WHERE is_active = TRUE ORDER BY name"
             ))).mappings().all()
 
-    return _ok([
+    all_barbers = [
         {
             "id": r["id"],
             "name": r["name"],
@@ -135,7 +178,21 @@ async def get_barbers(specialty: Optional[str] = None) -> dict:
             "specialties": r["specialties"],
         }
         for r in rows
-    ])
+    ]
+
+    if name:
+        # Case-insensitive partial match
+        name_lower = name.lower()
+        matches = [b for b in all_barbers if name_lower in b["name"].lower()]
+        if not matches:
+            return _ok({
+                "found": False,
+                "message": f"No barber named '{name}' found.",
+                "available_barbers": all_barbers,
+            })
+        return _ok({"found": True, "available_barbers": matches})
+
+    return _ok(all_barbers)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -157,13 +214,12 @@ async def get_available_slots(
          slot whose [start, start+duration) overlaps an occupied block.
       4. For today, also skip slots whose start time has already passed.
     """
-    appt_date = _parse_date(date)
-    if appt_date is None:
-        return _err(f"Invalid date '{date}'. Use YYYY-MM-DD format.")
+    # Resolve relative date expressions ("this Saturday", "tomorrow", etc.)
+    date = resolve_date(date)
 
-    today = datetime.now().date()
-    if appt_date < today:
-        return _err("Cannot check availability for a past date.")
+    is_valid, msg, appt_date = _validate_appointment_date(date)
+    if not is_valid:
+        return _err(msg)
 
     dow = appt_date.weekday()  # 0 = Monday … 6 = Sunday
 
@@ -218,7 +274,7 @@ async def get_available_slots(
 
     # ── minimum start for today ──────────────────────────────────────────────
     now_min: Optional[int] = None
-    if appt_date == today:
+    if appt_date == datetime.now().date():
         n = datetime.now()
         now_min = n.hour * 60 + n.minute  # must be strictly after this
 
@@ -287,11 +343,11 @@ async def book_appointment(
     except (ValueError, AttributeError):
         return _err("Invalid customer ID.")
 
-    appt_date = _parse_date(date)
-    if appt_date is None:
-        return _err(f"Invalid date '{date}'. Use YYYY-MM-DD format.")
-    if appt_date < datetime.now().date():
-        return _err("Cannot book an appointment in the past.")
+    # Resolve relative date expressions then validate
+    date = resolve_date(date)
+    is_valid, msg, appt_date = _validate_appointment_date(date)
+    if not is_valid:
+        return _err(msg)
 
     appt_time = _parse_time(time)
     if appt_time is None:
@@ -583,6 +639,7 @@ async def reschedule_appointment(
     except (ValueError, AttributeError):
         return _err("Invalid customer ID.")
 
+    new_date = resolve_date(new_date)  # handle relative expressions ("next Saturday")
     appt_date = _parse_date(new_date)
     if appt_date is None:
         return _err(f"Invalid date '{new_date}'. Use YYYY-MM-DD format.")

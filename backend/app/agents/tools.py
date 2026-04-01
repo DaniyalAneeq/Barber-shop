@@ -88,26 +88,52 @@ async def get_services() -> str:
 
 
 @function_tool
-async def get_barbers(specialty: Optional[str] = None) -> str:
+async def get_barbers(specialty: Optional[str] = None, name: Optional[str] = None) -> str:
     """
-    Retrieve active barbers from the database, optionally filtered by specialty.
+    Retrieve active barbers from the database, optionally filtered by specialty or name.
 
     Call this when:
     - The customer asks who is available or wants to choose a barber
     - The customer mentions a preference like 'fade', 'beard', or 'kids'
       (pass the keyword as specialty to filter results)
+    - The customer mentions a specific barber by name — pass that name to verify
+      they exist BEFORE starting the booking flow
+
+    When name is provided and no match is found, the response will include
+    found=False and a list of all available barbers so you can show the customer.
 
     The returned barber IDs are required by get_available_slots and book_appointment.
 
     Parameters:
         specialty: Optional skill keyword to filter by (e.g. 'fade', 'beard',
                    'kids_cuts', 'hot_towel_shave'). Leave empty to list all barbers.
+        name:      Optional barber name to look up (case-insensitive). Use this
+                   to verify a named barber exists before proceeding with booking.
     """
-    result = await _get_barbers(specialty)
+    result = await _get_barbers(specialty=specialty, name=name)
     if not result["ok"]:
         return f"Error fetching barbers: {result['error']}"
 
-    barbers = result["data"]
+    data = result["data"]
+
+    # Name-lookup response — may include found=False
+    if isinstance(data, dict) and "found" in data:
+        barbers = data["available_barbers"]
+        if not data["found"]:
+            lines = [data["message"], "\nAvailable barbers:\n"]
+            for b in barbers:
+                specs = ", ".join(b["specialties"]) if b["specialties"] else "general"
+                lines.append(f"• [ID {b['id']}] {b['name']} — specialties: {specs}")
+            return "\n".join(lines)
+        # found=True — list the match(es)
+        lines = ["Barber found:\n"]
+        for b in barbers:
+            specs = ", ".join(b["specialties"]) if b["specialties"] else "general"
+            lines.append(f"• [ID {b['id']}] {b['name']} — specialties: {specs}")
+        return "\n".join(lines)
+
+    # Normal list response
+    barbers = data
     if not barbers:
         msg = f"No barbers found with specialty '{specialty}'." if specialty else "No barbers currently available."
         return msg + " Try another keyword or list all barbers."

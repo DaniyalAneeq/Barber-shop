@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useId, useRef } from "react";
+import { useState, useId, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MapPinIcon,
@@ -12,14 +12,15 @@ import {
 } from "@heroicons/react/24/outline";
 import SectionWrapper from "./SectionWrapper";
 import { staggerItem, EASE_OUT } from "@/lib/animations";
-import { CONTACT, SERVICES, SOCIALS } from "@/data/content";
+import { CONTACT, SOCIALS } from "@/data/content";
+import {
+  fetchServices,
+  submitContactBooking,
+  ContactApiError,
+  type ServiceOption,
+} from "@/lib/contactApi";
 
-// ── Placeholder submit (swap for real API call later) ────────────────────────
-async function submitBooking(_data: Record<string, string>): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 1500));
-}
-
-// ── Form validation ───────────────────────────────────────────────────────────
+// ── Form types ────────────────────────────────────────────────────────────────
 type Fields = {
   name:    string;
   phone:   string;
@@ -31,28 +32,45 @@ type Fields = {
 
 type Errors = Partial<Record<keyof Fields, string>>;
 
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function todayISO() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function maxDateISO() {
+  const d = new Date();
+  d.setDate(d.getDate() + 60);
+  return d.toISOString().split("T")[0];
+}
+
+// ── Client-side validation ────────────────────────────────────────────────────
 function validate(fields: Fields): Errors {
   const errors: Errors = {};
+
   if (!fields.name.trim())
     errors.name = "Name is required.";
+
   if (!fields.phone.trim())
     errors.phone = "Phone number is required.";
   else if (!/^[\d\s\-+().]{7,20}$/.test(fields.phone))
-    errors.phone = "Enter a valid phone number.";
+    errors.phone = "Enter a valid phone number (7–20 digits).";
+
   if (!fields.email.trim())
     errors.email = "Email is required.";
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email))
     errors.email = "Enter a valid email address.";
+
   if (!fields.service)
     errors.service = "Please select a service.";
+
   if (!fields.date)
     errors.date = "Please pick a preferred date.";
-  return errors;
-}
+  else if (fields.date < todayISO())
+    errors.date = "Please choose a future date.";
+  else if (fields.date > maxDateISO())
+    errors.date = "Please choose a date within the next 60 days.";
 
-// ── Today's date for min attr ─────────────────────────────────────────────────
-function todayISO() {
-  return new Date().toISOString().split("T")[0];
+  return errors;
 }
 
 // ── Social icon paths (Simple Icons) ─────────────────────────────────────────
@@ -111,13 +129,32 @@ function BookingForm() {
     date:    "",
     message: "",
   });
-  const [errors,  setErrors]  = useState<Errors>({});
-  const [status,  setStatus]  = useState<"idle" | "loading" | "success">("idle");
-  const firstErrorRef = useRef<HTMLElement | null>(null);
+  const [errors,       setErrors]       = useState<Errors>({});
+  const [serverError,  setServerError]  = useState<string | null>(null);
+  const [status,       setStatus]       = useState<"idle" | "loading" | "success">("idle");
+
+  // Services fetched from DB
+  const [dbServices,      setDbServices]      = useState<ServiceOption[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError,   setServicesError]   = useState(false);
+
+  // Fetch services on mount
+  useEffect(() => {
+    fetchServices()
+      .then((services) => {
+        setDbServices(services);
+        setServicesLoading(false);
+      })
+      .catch(() => {
+        setServicesError(true);
+        setServicesLoading(false);
+      });
+  }, []);
 
   function set(key: keyof Fields, value: string) {
     setFields((f) => ({ ...f, [key]: value }));
     if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
+    if (serverError) setServerError(null);
   }
 
   function blurValidate(key: keyof Fields) {
@@ -125,22 +162,60 @@ function BookingForm() {
     if (e[key]) setErrors((prev) => ({ ...prev, [key]: e[key] }));
   }
 
+  function handleReset() {
+    setFields({ name: "", phone: "", email: "", service: "", date: "", message: "" });
+    setErrors({});
+    setServerError(null);
+    setStatus("idle");
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const errs = validate(fields);
     if (Object.keys(errs).length > 0) {
       setErrors(errs);
-      // Focus first error field
       const firstKey = Object.keys(errs)[0] as keyof Fields;
-      const el = document.getElementById(id(firstKey));
-      el?.focus();
+      document.getElementById(id(firstKey))?.focus();
       return;
     }
+
     setStatus("loading");
-    await submitBooking(fields as Record<string, string>);
-    setStatus("success");
+    setServerError(null);
+
+    try {
+      await submitContactBooking({
+        full_name:      fields.name,
+        phone:          fields.phone,
+        email:          fields.email,
+        service:        fields.service,
+        preferred_date: fields.date,
+        message:        fields.message || undefined,
+      });
+      setStatus("success");
+    } catch (err) {
+      setStatus("idle");
+
+      if (err instanceof ContactApiError) {
+        if (err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
+          setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
+          const firstKey = Object.keys(err.fieldErrors)[0] as keyof Fields;
+          document.getElementById(id(firstKey))?.focus();
+        } else {
+          setServerError(
+            err.status >= 500
+              ? "Something went wrong. Please try again or call us directly at (555) 123-4567."
+              : err.message,
+          );
+        }
+      } else {
+        setServerError(
+          "Something went wrong. Please try again or call us directly at (555) 123-4567.",
+        );
+      }
+    }
   }
 
+  // ── Success screen ──────────────────────────────────────────────────────────
   if (status === "success") {
     return (
       <AnimatePresence>
@@ -149,11 +224,10 @@ function BookingForm() {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.4, ease: [...EASE_OUT] as [number,number,number,number] }}
-          className="flex flex-col items-center justify-center gap-5 py-20 text-center"
+          className="flex flex-col items-center justify-center gap-5 py-16 text-center"
           role="status"
           aria-live="polite"
         >
-          {/* Checkmark circle */}
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
@@ -172,18 +246,28 @@ function BookingForm() {
               Booking Received
             </h3>
             <p
-              className="text-sm"
+              className="text-sm mb-6"
               style={{ fontFamily: "var(--font-inter)", color: "rgba(255,255,255,0.5)" }}
             >
-              We&apos;ll confirm your booking shortly.
+              We&apos;ll confirm your appointment shortly. Check your email for a reference number.
             </p>
+            <button
+              onClick={handleReset}
+              className="text-xs underline underline-offset-4 transition-colors duration-200"
+              style={{
+                fontFamily: "var(--font-source-code-pro)",
+                color: "rgba(212,160,23,0.7)",
+              }}
+            >
+              Book another appointment
+            </button>
           </div>
         </motion.div>
       </AnimatePresence>
     );
   }
 
-  // Shared label style
+  // ── Shared styles ───────────────────────────────────────────────────────────
   const labelStyle: React.CSSProperties = {
     fontFamily: "var(--font-source-code-pro)",
     color: "rgba(255,255,255,0.5)",
@@ -201,6 +285,7 @@ function BookingForm() {
     marginTop: "0.3rem",
   };
 
+  // ── Form ────────────────────────────────────────────────────────────────────
   return (
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
 
@@ -275,12 +360,19 @@ function BookingForm() {
             onBlur={() => blurValidate("service")}
             aria-invalid={!!errors.service}
             aria-describedby={errors.service ? id("service-err") : undefined}
+            disabled={servicesLoading}
             className={`form-select${errors.service ? " error" : ""}`}
           >
-            <option value="" disabled>Select a service…</option>
-            {SERVICES.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} — {s.price}
+            <option value="" disabled>
+              {servicesLoading
+                ? "Loading services…"
+                : servicesError
+                ? "Failed to load — refresh"
+                : "Select a service…"}
+            </option>
+            {!servicesLoading && !servicesError && dbServices.map((s) => (
+              <option key={s.id} value={s.name}>
+                {s.name} — ${s.price % 1 === 0 ? s.price.toFixed(0) : s.price.toFixed(2)}
               </option>
             ))}
           </select>
@@ -294,6 +386,7 @@ function BookingForm() {
             id={id("date")}
             type="date"
             min={todayISO()}
+            max={maxDateISO()}
             value={fields.date}
             onChange={(e) => set("date", e.target.value)}
             onBlur={() => blurValidate("date")}
@@ -323,12 +416,29 @@ function BookingForm() {
         />
       </div>
 
+      {/* Server error banner */}
+      {serverError && (
+        <div
+          role="alert"
+          className="rounded-lg px-4 py-3 text-sm"
+          style={{
+            fontFamily: "var(--font-inter)",
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.25)",
+            color: "rgba(239,68,68,0.9)",
+          }}
+        >
+          {serverError}
+        </div>
+      )}
+
       {/* Submit */}
       <button
         type="submit"
-        disabled={status === "loading"}
+        disabled={status === "loading" || servicesLoading}
         className="btn-gold w-full flex items-center justify-center gap-3
-          px-7 py-4 rounded-xl font-semibold tracking-wide text-sm cursor-pointer"
+          px-7 py-4 rounded-xl font-semibold tracking-wide text-sm cursor-pointer
+          disabled:opacity-60 disabled:cursor-not-allowed"
         style={{
           fontFamily: "var(--font-source-code-pro)",
           color: "#0A0A0A",
@@ -344,7 +454,6 @@ function BookingForm() {
               exit={{ opacity: 0 }}
               className="flex items-center gap-2.5"
             >
-              {/* Spinner */}
               <svg
                 className="animate-spin w-4 h-4"
                 viewBox="0 0 24 24"

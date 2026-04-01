@@ -74,8 +74,8 @@ function BarberFooter() {
     },
     {
       icon: <Phone size={15} />,
-      text: "+1 (555) 123-4567",
-      href: "tel:+15551234567",
+      text: "+1 (212) 555-0192",
+      href: "tel:+12125550192",
     },
     {
       icon: <MapPin size={15} />,
@@ -84,9 +84,9 @@ function BarberFooter() {
   ];
 
   const socialLinks = [
-    { icon: <InstagramIcon />, label: "Instagram", href: "#" },
-    { icon: <FacebookIcon />, label: "Facebook", href: "#" },
-    { icon: <YoutubeIcon />, label: "YouTube", href: "#" },
+    { icon: <InstagramIcon />, label: "Instagram", href: "https://www.instagram.com/" },
+    { icon: <FacebookIcon />, label: "Facebook", href: "https://www.facebook.com/" },
+    { icon: <YoutubeIcon />, label: "YouTube", href: "https://www.youtube.com/"},
   ];
 
   const hours = [

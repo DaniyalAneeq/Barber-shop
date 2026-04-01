@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { ScissorsIcon, Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import { NAV_LINKS } from "@/data/content";
+import Link from "next/link";
 
 export default function Navbar() {
   const [mobileOpen,     setMobileOpen]     = useState(false);
@@ -108,6 +109,8 @@ export default function Navbar() {
         </nav>
 
         {/* Desktop CTA */}
+        
+        <Link href="#contact">
         <button
           className="hidden md:inline-flex items-center px-5 py-2 rounded-full
             text-xs tracking-widest uppercase cursor-pointer text-yellow-400
@@ -126,6 +129,7 @@ export default function Navbar() {
         >
           Book Now
         </button>
+          </Link>
 
         {/* Mobile toggle */}
         <button

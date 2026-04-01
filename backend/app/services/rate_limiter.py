@@ -9,7 +9,6 @@ Limits:
 - Per-IP:      50 requests / minute
 - Verification resend: 1 / cooldown_seconds per email
 """
-import asyncio
 import time
 from collections import defaultdict, deque
 from typing import Optional
@@ -32,13 +31,15 @@ def _parse_limit(spec: str) -> tuple[int, int]:
 
 class SlidingWindowRateLimiter:
     """
-    Thread-safe sliding-window rate limiter backed by in-memory deques.
-    Automatically evicts expired entries.
+    Sliding-window rate limiter backed by in-memory deques.
+
+    No asyncio.Lock needed: asyncio is single-threaded and cooperative.
+    There is no await inside check() or reset(), so the event loop never
+    switches tasks mid-check — the deque operations are effectively atomic.
     """
 
     def __init__(self) -> None:
         self._windows: dict[str, deque] = defaultdict(deque)
-        self._lock = asyncio.Lock()
 
     async def check(self, key: str, limit: int, period_seconds: int) -> None:
         """
@@ -46,27 +47,24 @@ class SlidingWindowRateLimiter:
         """
         now = time.monotonic()
         cutoff = now - period_seconds
+        window = self._windows[key]
 
-        async with self._lock:
-            window = self._windows[key]
+        # Evict timestamps outside the window
+        while window and window[0] <= cutoff:
+            window.popleft()
 
-            # Evict timestamps outside the window
-            while window and window[0] <= cutoff:
-                window.popleft()
+        if len(window) >= limit:
+            retry_after = int(period_seconds - (now - window[0])) + 1
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Too many requests. Retry after {retry_after}s.",
+                headers={"Retry-After": str(retry_after)},
+            )
 
-            if len(window) >= limit:
-                retry_after = int(period_seconds - (now - window[0])) + 1
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Too many requests. Retry after {retry_after}s.",
-                    headers={"Retry-After": str(retry_after)},
-                )
-
-            window.append(now)
+        window.append(now)
 
     async def reset(self, key: str) -> None:
-        async with self._lock:
-            self._windows.pop(key, None)
+        self._windows.pop(key, None)
 
 
 # Singleton instances
