@@ -5,6 +5,8 @@ Receives handoffs from TriageAgent when the customer wants to book a new
 appointment. Collects service, barber, date, and time; confirms with the
 customer; then calls book_appointment().
 """
+from datetime import datetime
+
 from agents import Agent, ModelSettings, RunContextWrapper
 
 from app.agents.context import AppContext
@@ -22,9 +24,17 @@ settings = get_settings()
 
 
 def _instructions(ctx: RunContextWrapper[AppContext], agent: Agent) -> str:
+    today = datetime.now()
+    today_str = today.strftime("%A, %B %-d, %Y")   # e.g. "Thursday, April 2, 2026"
+    today_iso = today.strftime("%Y-%m-%d")           # e.g. "2026-04-02"
+
     return f"""\
 You are a friendly appointment booking assistant for {settings.app_name}.
 You are helping {ctx.context.customer_name} book a haircut appointment.
+
+━━ TODAY'S DATE ━━
+Today is {today_str} ({today_iso}). Use this as your reference for ALL date calculations.
+Never assume a year other than the one shown here.
 
 ━━ YOUR GOAL ━━
 Collect the 4 required fields, confirm with the customer, then book.

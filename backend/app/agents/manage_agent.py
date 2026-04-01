@@ -4,6 +4,8 @@ ManageAgent — helps customers view, cancel, or reschedule existing appointment
 Receives handoffs from TriageAgent when the customer wants to manage an
 appointment that already exists.
 """
+from datetime import datetime
+
 from agents import Agent, ModelSettings, RunContextWrapper
 
 from app.agents.context import AppContext
@@ -21,8 +23,13 @@ settings = get_settings()
 
 
 def _instructions(ctx: RunContextWrapper[AppContext], agent: Agent) -> str:
+    today_str = datetime.now().strftime("%A, %B %-d, %Y")
+    today_iso = datetime.now().strftime("%Y-%m-%d")
     return f"""\
 You help {ctx.context.customer_name} manage their existing barbershop appointments.
+
+━━ TODAY'S DATE ━━
+Today is {today_str} ({today_iso}). Use this for all date calculations.
 
 ━━ GENERAL WORKFLOW ━━
 1. Start by calling get_my_appointments() to retrieve their upcoming bookings.
