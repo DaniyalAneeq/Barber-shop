@@ -28,9 +28,10 @@ from app.agents.triage_agent import triage_agent
 log = logging.getLogger(__name__)
 
 # Allow enough turns for: triage → handoff → tool calls × N → reply.
-# A full booking flow needs at most 7-8 turns (triage + 5-6 in BookingAgent).
-# 10 gives comfortable headroom without allowing runaway loops.
-_MAX_TURNS = 10
+# A full booking flow: triage(1) + handoff(1) + get_services(1) + get_barbers(1)
+# + get_available_slots(1) + confirm(1) + book_appointment(1) = 7 minimum.
+# 20 gives comfortable headroom for multi-step flows without allowing runaway loops.
+_MAX_TURNS = 20
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
