@@ -22,7 +22,7 @@ const sourceCodePro = Source_Code_Pro({
   display: "swap",
 });
 
-const BASE_URL = "https://barbershop.com";
+const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://barbershop.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
