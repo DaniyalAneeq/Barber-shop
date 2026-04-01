@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 1024
     openai_context_messages: int = 20
 
-    # Email
+    # Resend (replaces direct SMTP on cloud hosts that block port 587)
+    resend_api_key: str = ""
+
+    # Email (kept for local-dev SMTP fallback)
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str = ""

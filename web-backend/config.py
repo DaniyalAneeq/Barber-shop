@@ -19,7 +19,10 @@ class Settings(BaseSettings):
     # Database — same variable name as chatbot backend so one .env works for both
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost/barbershop"
 
-    # Email — same variable names as chatbot backend
+    # Resend (replaces direct SMTP on cloud hosts that block port 587)
+    resend_api_key: str = ""
+
+    # Email (kept for local-dev SMTP fallback)
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str = ""

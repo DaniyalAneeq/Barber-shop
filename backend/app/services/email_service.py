@@ -16,7 +16,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
 
-import aiosmtplib
+import httpx
 
 from app.config import get_settings
 
@@ -65,33 +65,66 @@ def _fmt_time_12h(t: str) -> str:
 
 # ── Core SMTP sender (shared retry logic) ────────────────────────────────────
 
+def _extract_mime_parts(msg: MIMEMultipart) -> tuple[str, str]:
+    """Return (html_body, text_body) extracted from a MIMEMultipart message."""
+    html_body = ""
+    text_body = ""
+    for part in msg.walk():
+        if part.get_content_maintype() == "multipart":
+            continue
+        ct = part.get_content_type()
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            continue
+        decoded = payload.decode(part.get_content_charset() or "utf-8")
+        if ct == "text/html":
+            html_body = decoded
+        elif ct == "text/plain":
+            text_body = decoded
+    return html_body, text_body
+
+
 async def _send_raw_email(msg: MIMEMultipart, to_email: str, max_retries: int = 3) -> None:
+    """Send via Resend HTTP API (port 443 — works on DigitalOcean where SMTP is blocked)."""
+    if not settings.resend_api_key:
+        raise RuntimeError(
+            "RESEND_API_KEY is not configured. "
+            "Sign up at resend.com, get a free API key, and add it to your .env file."
+        )
+
+    html_body, text_body = _extract_mime_parts(msg)
+    payload = {
+        "from": msg["From"],
+        "to": [to_email],
+        "subject": msg["Subject"],
+        "html": html_body,
+        "text": text_body,
+    }
+
     last_exc: Optional[Exception] = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            await aiosmtplib.send(
-                msg,
-                hostname=settings.smtp_host,
-                port=settings.smtp_port,
-                username=settings.smtp_user,
-                password=settings.smtp_password,
-                use_tls=False,
-                start_tls=settings.smtp_use_tls,
-                timeout=15,
-            )
-            logger.info("Email sent to %s (attempt %d)", to_email, attempt)
-            return
-        except Exception as exc:
-            last_exc = exc
-            wait = 2 ** attempt  # 2, 4, 8 seconds
-            logger.warning(
-                "Email send failed (attempt %d/%d): %s — retrying in %ds",
-                attempt, max_retries, exc, wait,
-            )
-            if attempt < max_retries:
-                await asyncio.sleep(wait)
+    async with httpx.AsyncClient(timeout=15) as client:
+        for attempt in range(1, max_retries + 1):
+            try:
+                resp = await client.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+                    json=payload,
+                )
+                resp.raise_for_status()
+                logger.info("Email sent to %s via Resend (attempt %d)", to_email, attempt)
+                return
+            except Exception as exc:
+                last_exc = exc
+                wait = 2 ** attempt  # 2, 4, 8 seconds
+                logger.warning(
+                    "Resend failed (attempt %d/%d): %s — retrying in %ds",
+                    attempt, max_retries, exc, wait,
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(wait)
 
     logger.error("Giving up sending email to %s after %d attempts: %s", to_email, max_retries, last_exc)
+    raise RuntimeError(f"Email delivery failed after {max_retries} attempts: {last_exc}")
 
 
 def _make_msg(subject: str, to: str, html: str, text: str) -> MIMEMultipart:
